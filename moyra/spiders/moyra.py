@@ -10,8 +10,8 @@ def clean(data):
     return data_clened
 
 
-class MoyraSpider(scrapy.Spider):
-    name = "moyra"
+class PNSSpider(scrapy.Spider):
+    name = "pns"
 
     def start_requests(self):
         urls = [
@@ -21,27 +21,58 @@ class MoyraSpider(scrapy.Spider):
             yield scrapy.Request(url=url, callback=self.parse_categories)
 
     def parse_categories(self, response, **kwargs):
-        categories = response.xpath('//*[@id="centercolumn"]/div/table/tr/td/p/a/@href').getall()
+        categories = response.xpath('//*[@id="centercolumn"]/div/table/tr/td//a/@href').getall()
 
-        for category in categories:
+        for idx, category in enumerate(categories):
             print("Scraping Category: ", category)
-            yield scrapy.Request(url=category, callback=self.parse_products, cb_kwargs={"category_title": None})
+            yield scrapy.Request(url=category, callback=self.parse_products, cb_kwargs={"category_title": None, "category_idx": idx + 1})
 
     def parse_products(self, response, **kwargs):
         title = clean(response.xpath('//title/text()').get().split('|')[0])
-        category_title = f'{kwargs["category_title"]} > {title}' if kwargs["category_title"] else title
+        if "next" in kwargs:
+            category_title = kwargs["category_title"]
+        else:
+            category_title = f'{kwargs["category_title"]} > {title}' if kwargs["category_title"] else title
+
         sub_categories = response.xpath('//*[@id="centercolumn"]/div/div/ul/li/a/@href').getall()
-        products = response.xpath('//*[@class="products list"]/li/span[2]/div/a/@href').getall()
-        if response.xpath('//*[@class="products list"]'):
-            for product in products:
-                print("Scraping Product: ", product)
-                yield scrapy.Request(url=product, callback=self.parse_product, cb_kwargs={"category_title": category_title, "url": product})
+        products = response.xpath('//ul/li/span/div/a/@href').getall()
+        next = response.xpath('//a[@class="next"]/@href').get()
 
         # Scraping subcategories if there are subcategories
-        else:
-            for sub_category in sub_categories:
+        if len(sub_categories) > 0:
+            for idx, sub_category in enumerate(sub_categories):
                 print("Scraping Subcategory: ", sub_category)
-                yield scrapy.Request(url=sub_category, callback=self.parse_products, cb_kwargs={"category_title": category_title})
+                category_idx = kwargs["category_idx"]
+                sub_category_idx = idx + 1
+                yield scrapy.Request(url=sub_category,
+                                     callback=self.parse_products,
+                                     cb_kwargs={"category_title": category_title,
+                                                "category_idx": category_idx,
+                                                "sub_category_idx": sub_category_idx
+                                                },
+                                     )
+
+        else:
+            for idx, product in enumerate(products):
+                page = response.xpath('//a[@class="active"]/text()').get()
+                print("Scraping Product: ", product)
+                sub_category_idx = kwargs['sub_category_idx'] if "sub_category_idx" in kwargs else None
+                yield scrapy.Request(url=product, callback=self.parse_product,
+                                     cb_kwargs={"category_title": category_title,
+                                                "category_idx": kwargs['category_idx'],
+                                                "sub_category_idx": sub_category_idx,
+                                                "category_url": response.request.url,
+                                                "page": page,
+                                                "url": product,
+                                                "product_idx": idx + 1})
+
+        if next:
+            yield scrapy.Request(url=next,
+                                 callback=self.parse_products,
+                                 cb_kwargs={"category_title": category_title,
+                                            "category_idx": kwargs['category_idx'],
+                                            "url": next,
+                                            "next": True})
 
     def parse_product(self, response, **kwargs):
         title = response.xpath('//*[@class="product-title"]/text()').get()
@@ -63,6 +94,11 @@ class MoyraSpider(scrapy.Spider):
             "short_description": clean(short_description) if short_description else '',
             "description": description,
             "category": clean(kwargs["category_title"]),
+            "category_idx": clean(kwargs["category_idx"]),
+            "sub_category_idx": clean(kwargs["sub_category_idx"]),
+            "category_url": clean(kwargs["category_url"]),
+            "page": kwargs["page"],
+            "product_idx": kwargs['product_idx'],
             "original_price": clean(original_price + original_price_sup) if original_price else '',
             "sale_price": clean(sale_price + sale_price_sup) if sale_price else '',
             "regular_price": clean(regular_price + regular_price_sup) if regular_price else '',
