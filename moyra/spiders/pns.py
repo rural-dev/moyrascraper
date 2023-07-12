@@ -92,7 +92,7 @@ class PNSSpider(scrapy.Spider):
         yield {
             "title": clean(title),
             "short_description": clean(short_description) if short_description else '',
-            "description": description,
+            "description": clean(description) if description else '',
             "category": clean(kwargs["category_title"]),
             "category_idx": clean(kwargs["category_idx"]),
             "sub_category_idx": clean(kwargs["sub_category_idx"]),
